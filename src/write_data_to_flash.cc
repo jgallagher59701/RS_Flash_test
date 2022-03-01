@@ -180,18 +180,99 @@ bool read_record_from_file(char *record, const uint32_t record_size)
     return true;
 }
 
+#define HALF_SECOND 500
+
 /**
  * @brief Smart erase - waits for erase to complete
  */
 void flash_erase()
 {
     SerialFlash.eraseAll();
+    uint32_t t = millis();
     while (SerialFlash.ready() == false)
     {
         yield();
+        if (0 == (millis() - t) % HALF_SECOND)
+        {
+            digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
+        }
     }
 }
 
+bool read_and_write_test_data(int month, int year)
+{
+    char *file_name = make_data_file_name(month, year);
+    Serial.print("The file name is: ");
+    Serial.println(file_name);
+
+    char record[11];
+    const int samples_per_day = 24;
+    const int size_of_file = days_per_month[month] * samples_per_day * sizeof(record);
+    bool new_status = make_new_data_file(file_name, size_of_file);
+    if (!new_status)
+    {
+        Serial.println("Could not make the new data file.");
+        return false;
+    }
+
+    // make some phony data...
+    uint16_t message = 0;
+    for (int i = 0; i < days_per_month[month]; ++i)
+    {
+        for (int j = 0; j < samples_per_day; ++j)
+        {
+            ++message;
+
+            // first two bytes are the message num. filler after that.
+            memcpy(record, &message, sizeof(message));
+            // file the rest with 0xAA
+            for (unsigned int k = sizeof(message); k < sizeof(record); ++k)
+                record[k] = 0xAA;
+
+            bool wr_status = write_record_to_file(record, sizeof(record));
+            if (!wr_status)
+            {
+                Serial.print("Failed to write record number: ");
+                Serial.println(message);
+                return false;
+            }
+        }
+    }
+
+    flashFile.close(); // this doesn't actually do anything
+
+    // open the file and ...
+    flashFile = SerialFlash.open(file_name);
+
+    // read the data.
+    message = 0;
+    for (int i = 0; i < days_per_month[month]; ++i)
+    {
+        for (int j = 0; j < samples_per_day; ++j)
+        {
+            bool rd_status = read_record_from_file(record, sizeof(record));
+            if (!rd_status)
+            {
+                Serial.print("Failed to read record number: ");
+                Serial.println(message);
+                return false;
+            }
+
+            // first two bytes are the message num. filler after that.
+            char msg[256];
+            memcpy(&message, record, sizeof(message));
+            snprintf(msg, sizeof(msg), "record number: %d, data: %02x %02x %02x %02x %02x %02x %02x %02x %02x",
+                     message, record[2], record[3], record[4], record[5], record[6], record[7], record[8], record[9], record[10]);
+            Serial.println(msg);
+        }
+    }
+
+    return true;
+}
+
+/**
+ * @brief Halt
+ */
 void stop()
 {
     while (true)
@@ -209,8 +290,8 @@ void setup()
 
     Serial.begin(BAUD);
     // Wait for serial port to be available
-    // while (!Serial)
-    //    ;
+    while (!Serial)
+        ;
 
     Serial.println("Start Flash Write Tester");
 
@@ -240,67 +321,24 @@ void setup()
 
     space_on_flash(true);
 
-    int month = 2;
-    int year = 22;
+    //const int year = 22;
 
-    char *file_name = make_data_file_name(month, year);
-    Serial.print("The file name is: ");
-    Serial.println(file_name);
-
-    char record[11];
-    const int samples_per_day = 24;
-    const int size_of_file = days_per_month[month] * samples_per_day * sizeof(record);
-    bool new_status = make_new_data_file(file_name, size_of_file);
-    if (!new_status)
-    {
-        Serial.println("Could not make the new data file.");
-    }
-
-    // make some phony data...
-    uint16_t message = 0;
-    for (int i = 0; i < days_per_month[month]; ++i)
-    {
-        for (int j = 0; j < samples_per_day; ++j)
-        {
-            ++message;
-
-            // first two bytes are the message num. filler after that.
-            memcpy(record, &message, sizeof(message));
-            // file the rest with 0xAA
-            for (unsigned int k = 0; k < sizeof(record) - sizeof(message); ++k)
-                record[k] = 0xAA;
-
-            bool wr_status = write_record_to_file(record, sizeof(record));
-            if (!wr_status)
-            {
-                Serial.print("Failed to write record number: ");
-                Serial.println(message);
-            }
+    for (int year = 22; year < 27; year++) {
+        for (int month = 1; month < 13; month++) {
+            if (!read_and_write_test_data(month, year))
+                break;
         }
-    }
 
-    flashFile.close(); // this doesn't actually do anything
-
-    // open the file and ...
-    flashFile = SerialFlash.open(file_name);
-
-    // read the data.
-    message = 0;
-    for (int i = 0; i < days_per_month[month]; ++i)
-    {
-        for (int j = 0; j < samples_per_day; ++j)
-        {
-            bool rd_status = read_record_from_file(record, sizeof(record));
-            if (!rd_status)
-            {
-                Serial.print("Failed to read record number: ");
-                Serial.println(message);
+        for (int month = 1; month < 13; month++) {
+            char *file_name = make_data_file_name(month, year);
+            flashFile = SerialFlash.open(file_name);
+            if (!flashFile) {
+                Serial.print("Could not open: "); Serial.println(file_name);
+                break;
             }
-
-            // first two bytes are the message num. filler after that.
-            memcpy(&message, record, sizeof(message));
-            Serial.print("Read record number: ");
-            Serial.println(message);
+            char msg[256];
+            snprintf(msg, sizeof(msg), "File %s starts at 0x%lx", file_name, flashFile.getFlashAddress());
+            Serial.println(msg); 
         }
     }
 }
