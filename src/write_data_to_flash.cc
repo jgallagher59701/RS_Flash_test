@@ -21,6 +21,10 @@
 #define HALF_SEC 500
 #define TENTH_SEC 100
 
+#ifndef ERASE_FLASH
+#define ERASE_FLASH 0
+#endif
+
 uint32_t space_on_flash(bool verbose = false)
 {
     uint8_t buf[16];
@@ -46,6 +50,7 @@ uint32_t space_on_flash(bool verbose = false)
     return chipsize;
 }
 
+#if 0
 // Erase the flash chip, flashing wile that happens.
 // Once the erase is complete, flash 5 times quickly.
 void erase_flash()
@@ -74,6 +79,47 @@ void erase_flash()
     }
     digitalWrite(STATUS_LED, HIGH);
 }
+
+#else
+
+/**
+ * @brief Smart erase - waits for erase to complete
+ * While the flash chip is erasing, call yield and flash the status LED.
+ * When the erase operation is complete, flash five times quickly.
+ */
+void erase_flash()
+{
+    // We start by formatting the flash...
+    uint8_t id[5];
+    SerialFlash.readID(id);
+    SerialFlash.eraseAll();
+
+    bool status_value = digitalRead(STATUS_LED); // record state
+
+    uint32_t t = millis();
+    while (SerialFlash.ready() == false)
+    {
+        yield();
+        if (0 == (millis() - t) % HALF_SEC)
+        {
+            digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
+        }
+    }
+
+    // Quickly flash LED a few times when completed, then leave the light on solid
+    t = millis();
+    for (uint8_t i = 0; i < 5; i++)
+    {
+        yield();
+        if (0 == (millis() - t) % TENTH_SEC)
+        {
+            digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
+        }
+    }
+
+    digitalWrite(STATUS_LED, status_value); // exit with entry state
+}
+#endif
 
 // make file object: SerialFlashFile flashFile;
 // create file with size: SerialFlash.create(filename, fileSize)
@@ -180,26 +226,10 @@ bool read_record_from_file(char *record, const uint32_t record_size)
     return true;
 }
 
-#define HALF_SECOND 500
-
 /**
- * @brief Smart erase - waits for erase to complete
+ * @brief build up phony data to test flash behavior.
  */
-void flash_erase()
-{
-    SerialFlash.eraseAll();
-    uint32_t t = millis();
-    while (SerialFlash.ready() == false)
-    {
-        yield();
-        if (0 == (millis() - t) % HALF_SECOND)
-        {
-            digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
-        }
-    }
-}
-
-bool read_and_write_test_data(int month, int year)
+bool read_and_write_test_data(int month, int year, bool verbose = false)
 {
     char *file_name = make_data_file_name(month, year);
     Serial.print("The file name is: ");
@@ -259,11 +289,34 @@ bool read_and_write_test_data(int month, int year)
             }
 
             // first two bytes are the message num. filler after that.
-            char msg[256];
             memcpy(&message, record, sizeof(message));
-            snprintf(msg, sizeof(msg), "record number: %d, data: %02x %02x %02x %02x %02x %02x %02x %02x %02x",
-                     message, record[2], record[3], record[4], record[5], record[6], record[7], record[8], record[9], record[10]);
-            Serial.println(msg);
+            if (message != (j + 1) + (i * samples_per_day))
+            {
+                Serial.print("Invalid message number: ");
+                Serial.print(message);
+                Serial.print(", expected: ");
+                Serial.println((j + 1) + (i * samples_per_day));
+            }
+
+                    char filler[9] = {0xAA,
+                                      0xAA,
+                                      0xAA,
+                                      0xAA,
+                                      0xAA,
+                                      0xAA,
+                                      0xAA,
+                                      0xAA,
+                                      0xAA};
+                if (memcmp(&record[2], filler, sizeof(filler)) != 0)
+                    Serial.println("Invalid record filler");
+
+                if (verbose)
+                {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "record number: %d, data: %02x %02x %02x %02x %02x %02x %02x %02x %02x",
+                             message, record[2], record[3], record[4], record[5], record[6], record[7], record[8], record[9], record[10]);
+                    Serial.println(msg);
+            }
         }
     }
 
@@ -314,18 +367,19 @@ void setup()
 
     SPI.setClockDivider(SPI_CLOCK_DIV64);
 
+#if ERASE_FLASH
     // Erase the chip
-    flash_erase();
+    // flash_erase();
+    erase_flash();
+#endif
 
     Serial.println("Space on the flash chip: ");
 
     space_on_flash(true);
 
-    //const int year = 22;
-
-    for (int year = 22; year < 27; year++) {
+    for (int year = 22; year < 24; year++) {
         for (int month = 1; month < 13; month++) {
-            if (!read_and_write_test_data(month, year))
+            if (!read_and_write_test_data(month, year, false /*verbose*/))
                 break;
         }
 
@@ -337,7 +391,7 @@ void setup()
                 break;
             }
             char msg[256];
-            snprintf(msg, sizeof(msg), "File %s starts at 0x%lx", file_name, flashFile.getFlashAddress());
+            snprintf(msg, sizeof(msg), "File %s starts at 0x%08lx", file_name, flashFile.getFlashAddress());
             Serial.println(msg); 
         }
     }
