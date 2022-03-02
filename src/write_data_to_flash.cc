@@ -27,11 +27,11 @@
 
 #ifndef JLINK
 #define JLINK 0
-#define Serial.println(x) Serial.println(x)
-#define Serial.print(x) Serial.print(x)
+#define Serial_println(x) SerialUSB.println(x)
+#define Serial_print(x) SerialUSB.print(x)
 #else
-#define Serial.println(x)
-#define Serial.print(x)
+#define Serial_println(x)
+#define Serial_print(x)
 #endif
 
 SerialFlashFile flashFile;
@@ -42,8 +42,8 @@ SerialFlashFile flashFile;
 bool read_and_write_test_data(int month, int year, bool verbose = false)
 {
     char *file_name = make_data_file_name(month, year);
-    Serial.print("The file name is: ");
-    Serial.println(file_name);
+    Serial_print("The file name is: ");
+    Serial_println(file_name);
 
     char record[11];
     const int samples_per_day = 24;
@@ -52,7 +52,7 @@ bool read_and_write_test_data(int month, int year, bool verbose = false)
     bool new_status = make_new_data_file(flashFile, file_name, size_of_file);
     if (!new_status)
     {
-        Serial.println("Could not make the new data file.");
+        Serial_println("Could not make the new data file.");
         return false;
     }
 
@@ -73,8 +73,8 @@ bool read_and_write_test_data(int month, int year, bool verbose = false)
             bool wr_status = write_record_to_file(flashFile, record, sizeof(record));
             if (!wr_status)
             {
-                Serial.print("Failed to write record number: ");
-                Serial.println(message);
+                Serial_print("Failed to write record number: ");
+                Serial_println(message);
                 return false;
             }
         }
@@ -94,8 +94,8 @@ bool read_and_write_test_data(int month, int year, bool verbose = false)
             bool rd_status = read_record_from_file(flashFile, record, sizeof(record));
             if (!rd_status)
             {
-                Serial.print("Failed to read record number: ");
-                Serial.println(message);
+                Serial_print("Failed to read record number: ");
+                Serial_println(message);
                 return false;
             }
 
@@ -103,15 +103,15 @@ bool read_and_write_test_data(int month, int year, bool verbose = false)
             memcpy(&message, record, sizeof(message));
             if (message != (j + 1) + (i * samples_per_day))
             {
-                Serial.print("Invalid message number: ");
-                Serial.print(message);
-                Serial.print(", expected: ");
-                Serial.println((j + 1) + (i * samples_per_day));
+                Serial_print("Invalid message number: ");
+                Serial_print(message);
+                Serial_print(", expected: ");
+                Serial_println((j + 1) + (i * samples_per_day));
             }
 
             char filler[9] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
             if (memcmp(&record[2], filler, sizeof(filler)) != 0)
-                Serial.println("Invalid record filler");
+                Serial_println("Invalid record filler");
 
             if (verbose)
             {
@@ -152,13 +152,13 @@ void setup()
         ;
 #endif
 
-    Serial.println("Start Flash Write Tester");
+    Serial_println("Start Flash Write Tester");
 
     bool status = SerialFlash.begin(SPI, FLASH_CS);
     if (!status)
     {
-        Serial.print("Flash memory initialization error, error code: ");
-        Serial.println();
+        Serial_print("Flash memory initialization error, error code: ");
+        Serial_println();
         stop();
     }
 
@@ -178,7 +178,7 @@ void setup()
     erase_flash();
 #endif
 
-    Serial.println("Space on the flash chip: ");
+    Serial_println("Space on the flash chip: ");
 
     space_on_flash(true);
 
@@ -192,12 +192,13 @@ void setup()
             char *file_name = make_data_file_name(month, year);
             flashFile = SerialFlash.open(file_name);
             if (!flashFile) {
-                Serial.print("Could not open: "); Serial.println(file_name);
+                Serial_print("Could not open: ");
+                Serial_println(file_name);
                 break;
             }
             char msg[256];
             snprintf(msg, sizeof(msg), "File %s starts at 0x%08lx", file_name, flashFile.getFlashAddress());
-            Serial.println(msg); 
+            Serial_println(msg);
         }
     }
 }

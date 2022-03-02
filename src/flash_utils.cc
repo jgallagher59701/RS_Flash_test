@@ -9,7 +9,7 @@
 #include <string.h>
 #include <time.h>
 
-// #include <SPI.h>
+#include <SPI.h>
 
 #include <SerialFlash.h>
 
@@ -25,38 +25,38 @@
 
 #ifndef JLINK
 #define JLINK 0
-#define Serial.println(x) Serial.println(x)
-#define Serial.print(x) Serial.print(x)
+#define Serial_println(x) SerialUSB.println(x)
+#define Serial_print(x) SerialUSB.print(x)
 #else
-#define Serial.println(x)
-#define Serial.print(x)
+#define Serial_println(x)
+#define Serial_print(x)
 #endif
 
 /**
  * @brief Run basic diagnostics and get the flash chip size in bytes
- * @param verbose true to print info using Serial.print(), quiet if false
+ * @param verbose true to print info using Serial_print(), quiet if false
  */
 uint32_t space_on_flash(bool verbose = false)
 {
     uint8_t buf[16];
     char msg[256];
 
-    Serial.println(F("Read Chip Identification:"));
+    Serial_println(F("Read Chip Identification:"));
 
     SerialFlash.readID(buf);
     snprintf(msg, 255, "  JEDEC ID:     %02X %02X %0X", buf[0], buf[1], buf[2]);
-    Serial.println(msg);
+    Serial_println(msg);
 
     uint32_t chipsize = SerialFlash.capacity(buf);
     snprintf(msg, 255, "  Memory Size:  %ld", chipsize);
-    Serial.println(msg);
+    Serial_println(msg);
 
     if (chipsize == 0)
         return 0;
 
     uint32_t blocksize = SerialFlash.blockSize();
     snprintf(msg, 255, "  Block Size:   %ld", blocksize);
-    Serial.println(msg);
+    Serial_println(msg);
 
     return chipsize;
 }
@@ -155,7 +155,7 @@ bool make_new_data_file(SerialFlashFile &flashFile, const char *filename, const 
     bool status = SerialFlash.create(filename, size_of_file);
     if (!status)
     {
-        Serial.println("Failed to initialize Serial Flash");
+        Serial_println("Failed to initialize Serial Flash");
         return false;
     }
 
