@@ -17,7 +17,7 @@
 
 #define STATUS_LED 13
 #define LORA_CS 5
-#define FLASH_CS 4
+
 #define BAUD 115200
 #define Serial SerialUSB // Needed for RS. jhrg 7/26/20
 
@@ -27,11 +27,10 @@
 
 #ifndef JLINK
 #define JLINK 0
-#define Serial_println(x) SerialUSB.println(x)
-#define Serial_print(x) SerialUSB.print(x)
-#else
-#define Serial_println(x)
-#define Serial_print(x)
+#endif
+
+#ifndef VERBOSE
+#define VERBOSE 0
 #endif
 
 SerialFlashFile flashFile;
@@ -42,17 +41,25 @@ SerialFlashFile flashFile;
 bool read_and_write_test_data(int month, int year, bool verbose = false)
 {
     char *file_name = make_data_file_name(month, year);
-    Serial_print("The file name is: ");
-    Serial_println(file_name);
+    Serial.print("The file name is: ");
+    Serial.println(file_name);
 
+    const int header_size = 3 * sizeof(uint16_t);
     char record[11];
     const int samples_per_day = 24;
     const int dpm = days_per_month(month, year);
-    const int size_of_file = dpm * samples_per_day * sizeof(record);
+    const int size_of_file = (dpm * samples_per_day * sizeof(record)) + header_size;
     bool new_status = make_new_data_file(flashFile, file_name, size_of_file);
     if (!new_status)
     {
-        Serial_println("Could not make the new data file.");
+        Serial.println("Could not make the new data file.");
+        return false;
+    }
+
+    bool header_status = write_header_to_file(flashFile, year, month, dpm * samples_per_day);
+    if (!header_status)
+    {
+        Serial.println("Could not write the data file header.");
         return false;
     }
 
@@ -73,8 +80,8 @@ bool read_and_write_test_data(int month, int year, bool verbose = false)
             bool wr_status = write_record_to_file(flashFile, record, sizeof(record));
             if (!wr_status)
             {
-                Serial_print("Failed to write record number: ");
-                Serial_println(message);
+                Serial.print("Failed to write record number: ");
+                Serial.println(message);
                 return false;
             }
         }
@@ -85,6 +92,17 @@ bool read_and_write_test_data(int month, int year, bool verbose = false)
     // open the file and ...
     flashFile = SerialFlash.open(file_name);
 
+    // read the header
+    uint16_t header_year, header_month, header_n_records;
+    header_status = read_header_from_file(flashFile, header_year, header_month, header_n_records);
+    if (!header_status) {
+        Serial.println("Could not read the data file header.");
+        return false;
+    }
+    char msg[256];
+    snprintf(msg, sizeof(msg), "year: %d, Month %d, number of records: %d", header_year, header_month, header_n_records);
+    Serial.println(msg);
+
     // read the data.
     message = 0;
     for (int i = 0; i < dpm; ++i)
@@ -94,8 +112,8 @@ bool read_and_write_test_data(int month, int year, bool verbose = false)
             bool rd_status = read_record_from_file(flashFile, record, sizeof(record));
             if (!rd_status)
             {
-                Serial_print("Failed to read record number: ");
-                Serial_println(message);
+                Serial.print("Failed to read record number: ");
+                Serial.println(message);
                 return false;
             }
 
@@ -103,15 +121,15 @@ bool read_and_write_test_data(int month, int year, bool verbose = false)
             memcpy(&message, record, sizeof(message));
             if (message != (j + 1) + (i * samples_per_day))
             {
-                Serial_print("Invalid message number: ");
-                Serial_print(message);
-                Serial_print(", expected: ");
-                Serial_println((j + 1) + (i * samples_per_day));
+                Serial.print("Invalid message number: ");
+                Serial.print(message);
+                Serial.print(", expected: ");
+                Serial.println((j + 1) + (i * samples_per_day));
             }
 
             char filler[9] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
             if (memcmp(&record[2], filler, sizeof(filler)) != 0)
-                Serial_println("Invalid record filler");
+                Serial.println("Invalid record filler");
 
             if (verbose)
             {
@@ -126,17 +144,6 @@ bool read_and_write_test_data(int month, int year, bool verbose = false)
     return true;
 }
 
-/**
- * @brief Halt
- */
-void stop()
-{
-    while (true)
-    {
-        yield();
-    }
-}
-
 void setup()
 {
     pinMode(STATUS_LED, OUTPUT);
@@ -144,61 +151,36 @@ void setup()
     pinMode(LORA_CS, OUTPUT);
     digitalWrite(LORA_CS, HIGH);
 
-#if !JLINK
     Serial.begin(BAUD);
 
+#if JLINK == 0
     // Wait for serial port to be available
-    while (!Serial)
+    while (!SerialUSB)
         ;
 #endif
 
-    Serial_println("Start Flash Write Tester");
+    Serial.println("Start Flash Write Tester");
 
-    bool status = SerialFlash.begin(SPI, FLASH_CS);
-    if (!status)
+    setup_spi_flash(ERASE_FLASH, VERBOSE);
+    
+    for (int year = 24; year < 26; year++)
     {
-        Serial_print("Flash memory initialization error, error code: ");
-        Serial_println();
-        stop();
-    }
-
-    // Without this configuration of the SPI bus, the SerialFlash library sees
-    // the Winbond flash chip as only 1MB when it is, in fact, 2MB. With this
-    // hack, the chip has the correct size and also the JEDEC ID (EF 40 15).
-    // This maybe due to a bug introduced into the Arduino-SAMD core in version
-    // 1.8.11. See https://github.com/PaulStoffregen/SerialFlash/issues/79.
-    // SPI_CLOCK_DIV2 to SPI_CLOCK_DIV128 (which set the SPI freq to the CPU
-    // frequency divided by 6 to 255, see SPI.h) seem to work. This has to follow
-    // SerailFlash::begin(). jhrg 2/16/22
-
-    SPI.setClockDivider(SPI_CLOCK_DIV64);
-
-#if ERASE_FLASH
-    // Erase the chip
-    erase_flash();
-#endif
-
-    Serial_println("Space on the flash chip: ");
-
-    space_on_flash(true);
-
-    for (int year = 22; year < 24; year++) {
         for (int month = 1; month < 13; month++) {
             if (!read_and_write_test_data(month, year, false /*verbose*/))
-                break;
+                continue;
         }
 
         for (int month = 1; month < 13; month++) {
             char *file_name = make_data_file_name(month, year);
             flashFile = SerialFlash.open(file_name);
             if (!flashFile) {
-                Serial_print("Could not open: ");
-                Serial_println(file_name);
-                break;
+                Serial.print("Could not open: ");
+                Serial.println(file_name);
+                continue;
             }
             char msg[256];
             snprintf(msg, sizeof(msg), "File %s starts at 0x%08lx", file_name, flashFile.getFlashAddress());
-            Serial_println(msg);
+            Serial.println(msg);
         }
     }
 }
