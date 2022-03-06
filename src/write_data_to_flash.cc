@@ -163,7 +163,7 @@ void setup()
 
     setup_spi_flash(ERASE_FLASH, VERBOSE);
     
-    for (int year = 24; year < 26; year++)
+    for (int year = 22; year < 24; year++)
     {
         for (int month = 1; month < 13; month++) {
             if (!read_and_write_test_data(month, year, false /*verbose*/))

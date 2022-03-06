@@ -62,6 +62,20 @@ bool parse_filename(const char *filename, int &month, int &year)
     return true;
 }
 
+/**
+ * @brief Read data from a file. 
+ * This function expects that there will be a 6 byte (3 field) header followed
+ * by N records and that each record will be 11 bytes. It checks that the file
+ * exists and can be opened. It checks that number of records match the samples
+ * per day scheme.
+ * 
+ * @todo Modify for real use.
+ * 
+ * @param filename The name of the Flash file to open and read.
+ * @param verbose If true, write more info to Serail. By default, false.
+ * @return True if no error was detected, false otherwise. Writes a message to 
+ * the Serial port.
+ */
 bool read_file_data(const char *filename, bool verbose = false)
 {
     if (!SerialFlash.exists(filename)) {
@@ -176,16 +190,6 @@ void setup()
             Serial.println(msg);
 
             read_file_data(filename);
-#if 0
-            int month, year;
-            if (!parse_filename(filename, month, year)) {
-                Serial.print("Could not parse filename: ");
-                Serial.println(filename);
-            }
-
-            snprintf(msg, sizeof(msg), "month: %ld, year: %ld", month, year);
-            Serial.println(msg);
-#endif
         }
         else
         {
@@ -193,11 +197,6 @@ void setup()
             break; // no more files
         }
     }
-
-#if 0
-
-
-#endif
 }
 
 void loop()
