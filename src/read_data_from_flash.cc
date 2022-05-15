@@ -95,8 +95,8 @@ bool read_file_data(const char *filename, bool verbose = false)
     Serial.println(filename);
 
     // read the header
-    uint16_t header_year, header_month, header_n_records;
-    bool header_status = read_header_from_file(flashFile, header_year, header_month, header_n_records);
+    uint16_t header_year, header_month, num_records, record_size, record_type;
+    bool header_status = read_header_from_file(flashFile, header_year, header_month, num_records, record_size, record_type);
     if (!header_status)
     {
         Serial.println("Could not read the data file header.");
@@ -104,23 +104,24 @@ bool read_file_data(const char *filename, bool verbose = false)
     }
 
     char msg[256];
-    snprintf(msg, sizeof(msg), "Header: year: %d, month %d, number of records: %d", header_year, header_month, header_n_records);
+    snprintf(msg, sizeof(msg), "Header: year: %d, month %d, number of records: %d, size %d and type %02x", 
+            header_year, header_month, num_records, record_size, record_type);
     Serial.println(msg);
 
     char record[11];
     const int samples_per_day = 24;
     const int dpm = days_per_month(header_month, header_year);
-    if (dpm * samples_per_day != header_n_records) {
+    if (dpm * samples_per_day != num_records)
+    {
         char msg[256];
-        snprintf(msg, sizeof(msg), "Expected records (%d) and number if header (%d) do not match", 
-                dpm * samples_per_day, header_n_records);
+        snprintf(msg, sizeof(msg), "Expected records (%d) and number in header (%d) do not match",
+                 dpm * samples_per_day, num_records);
         Serial.println(msg);
     }
-    // unused const int size_of_file = header_n_records * sizeof(record);
-
+    
     // read the data.
     uint16_t message = 0;
-    for (int i = 0; i < header_n_records; ++i)
+    for (int i = 0; i < num_records; ++i)
     {
         bool rd_status = read_record_from_file(flashFile, record, sizeof(record));
         if (!rd_status)

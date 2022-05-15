@@ -38,25 +38,24 @@ SerialFlashFile flashFile;
 /**
  * @brief build up phony data to test flash behavior.
  */
-bool read_and_write_test_data(int month, int year, bool verbose = false)
+bool write_test_data(int month, int year, bool verbose = false)
 {
     char *file_name = make_data_file_name(month, year);
     Serial.print("The file name is: ");
     Serial.println(file_name);
 
-    const int header_size = 3 * sizeof(uint16_t);
     char record[11];
     const int samples_per_day = 24;
     const int dpm = days_per_month(month, year);
-    const int size_of_file = (dpm * samples_per_day * sizeof(record)) + header_size;
-    bool new_status = make_new_data_file(flashFile, file_name, size_of_file);
+    const int num_records = dpm * samples_per_day;
+    bool new_status = make_new_data_file(flashFile, file_name, num_records, sizeof(record));
     if (!new_status)
     {
         Serial.println("Could not make the new data file.");
         return false;
     }
 
-    bool header_status = write_header_to_file(flashFile, year, month, dpm * samples_per_day);
+    bool header_status = write_header_to_file(flashFile, year, month, num_records, sizeof(record), RECORD_TYPE_01);
     if (!header_status)
     {
         Serial.println("Could not write the data file header.");
@@ -89,22 +88,44 @@ bool read_and_write_test_data(int month, int year, bool verbose = false)
 
     flashFile.close(); // this doesn't actually do anything
 
+    return true;
+}
+
+bool read_test_data(int month, int year, bool verbose = false)
+{
     // open the file and ...
+    char *file_name = make_data_file_name(month, year);
     flashFile = SerialFlash.open(file_name);
+    if (!flashFile)
+    {
+        Serial.print("Could not open: ");
+        Serial.println(file_name);
+        return false;
+    }
+
+    char msg[256];
+    snprintf(msg, sizeof(msg), "File %s starts at 0x%08lx", file_name, flashFile.getFlashAddress());
+    Serial.println(msg);
 
     // read the header
-    uint16_t header_year, header_month, header_n_records;
-    header_status = read_header_from_file(flashFile, header_year, header_month, header_n_records);
-    if (!header_status) {
+    uint16_t header_year, header_month, num_records, record_size, record_type;
+    bool header_status = read_header_from_file(flashFile, header_year, header_month, num_records, record_size, record_type);
+    if (!header_status)
+    {
         Serial.println("Could not read the data file header.");
         return false;
     }
-    char msg[256];
-    snprintf(msg, sizeof(msg), "year: %d, Month %d, number of records: %d", header_year, header_month, header_n_records);
+
+    snprintf(msg, sizeof(msg), "year: %d, Month %d, number of records: %d, record size %d and type %02x",
+             header_year, header_month, num_records, record_size, record_type);
     Serial.println(msg);
 
     // read the data.
-    message = 0;
+    uint16_t message = 0;
+    char record[11];
+    const int samples_per_day = 24;
+    const int dpm = days_per_month(month, year);
+
     for (int i = 0; i < dpm; ++i)
     {
         for (int j = 0; j < samples_per_day; ++j)
@@ -155,21 +176,24 @@ void setup()
 
 #if JLINK == 0
     // Wait for serial port to be available
-    while (!SerialUSB)
+    while (!Serial)
         ;
 #endif
 
     Serial.println("Start Flash Write Tester");
 
     setup_spi_flash(ERASE_FLASH, VERBOSE);
-    
+
     for (int year = 22; year < 24; year++)
     {
         for (int month = 1; month < 13; month++) {
-            if (!read_and_write_test_data(month, year, false /*verbose*/))
+            if (!write_test_data(month, year, false /*verbose*/))
+                continue;
+            if (!read_test_data(month, year, false /*verbose*/))
                 continue;
         }
 
+#if 0
         for (int month = 1; month < 13; month++) {
             char *file_name = make_data_file_name(month, year);
             flashFile = SerialFlash.open(file_name);
@@ -182,6 +206,7 @@ void setup()
             snprintf(msg, sizeof(msg), "File %s starts at 0x%08lx", file_name, flashFile.getFlashAddress());
             Serial.println(msg);
         }
+#endif
     }
 }
 

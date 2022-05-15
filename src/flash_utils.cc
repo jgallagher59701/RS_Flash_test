@@ -21,6 +21,8 @@
 
 #include <SerialFlash.h>
 
+#include "flash_utils.h"
+
 #define STATUS_LED 13
 #define Serial SerialUSB // Needed for RS. jhrg 7/26/20
 #define FLASH_CS 4
@@ -48,7 +50,7 @@ static void stop()
  * @brief Run basic diagnostics and get the flash chip size in bytes
  * @param verbose true to print info using Serial.print(), quiet if false
  */
-uint32_t space_on_flash(bool verbose = false)
+uint32_t space_on_flash(bool verbose)
 {
     uint8_t buf[16];
     char msg[256];
@@ -87,25 +89,22 @@ void erase_flash()
 
     bool status_value = digitalRead(STATUS_LED); // record state
 
-    uint32_t t = millis();
     while (SerialFlash.ready() == false)
     {
-        yield();
-        if (0 == (millis() - t) % HALF_SEC)
-        {
-            digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
-        }
+        delay(HALF_SEC);
+        digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
     }
 
-#if !JLINK
+#if JLINK == 0 // The debugger blocks the interupt handler for millis() and micros()
     // Quickly flash LED a few times when completed, then leave the light on solid
-    t = millis();
+    uint32_t t = millis();
     uint32_t end_time = t + TWO_SEC;
     while (millis() < end_time)
     {
         yield();
-        if (0 == (millis() - t) % TENTH_SEC)
+        if ((millis() - t) >= TENTH_SEC)
         {
+            t = millis();
             digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
         }
     }
@@ -120,7 +119,7 @@ void erase_flash()
  * @param verbose If True, print information. False by default.
  * @return The capacity of the flash chip.
  */
-uint32_t setup_spi_flash(bool erase, bool verbose = false)
+uint32_t setup_spi_flash(bool erase, bool verbose)
 {
     bool status = SerialFlash.begin(SPI, FLASH_CS);
     if (!status)
@@ -220,6 +219,11 @@ bool make_new_data_file(SerialFlashFile &flashFile, const char *filename, const 
     return flashFile ? true : false;
 }
 
+bool make_new_data_file(SerialFlashFile &flashFile, const char *filename, const int num_records, const int record_size)
+{
+    return make_new_data_file(flashFile, filename, FLASH_FILE_HEADER_SIZE + (num_records * record_size));
+}
+
 static bool write_uint16(SerialFlashFile &flashFile, const uint16_t value)
 {
     uint32_t len = flashFile.write(&value, sizeof(uint16_t));
@@ -238,16 +242,19 @@ static bool write_uint16(SerialFlashFile &flashFile, const uint16_t value)
  * @param month
  * @param num_records The number of records that should be in this file if
  * it's full of data. Unused bytes should be null.
+ * @param record_size The number of bytes in the record
+ * @param record_type An identifier for the type of the record.
  * @return true if the header was written, false if an error was detected.
  */
-bool write_header_to_file(SerialFlashFile &flashFile, const uint16_t year, const uint16_t month, const uint16_t num_records)
+bool write_header_to_file(SerialFlashFile &flashFile, const uint16_t year, const uint16_t month,
+                          const uint16_t num_records, const uint16_t record_size, const uint16_t record_type)
 {
     if (!flashFile)
     {
         return false;
     }
 
-    return write_uint16(flashFile, year) && write_uint16(flashFile, month) && write_uint16(flashFile, num_records);
+    return write_uint16(flashFile, year) && write_uint16(flashFile, month) && write_uint16(flashFile, num_records) && write_uint16(flashFile, record_size) && write_uint16(flashFile, record_type);
 }
 
 /**
@@ -290,14 +297,15 @@ static bool read_uint16(SerialFlashFile &flashFile, uint16_t &value)
  * @brief Read the data file header
  * @return True if successful, false otherwise
  */
-bool read_header_from_file(SerialFlashFile &flashFile, uint16_t &year, uint16_t &month, uint16_t &num_records)
+bool read_header_from_file(SerialFlashFile &flashFile, uint16_t &year, uint16_t &month, uint16_t &num_records,
+                           uint16_t &record_size, uint16_t &record_type)
 {
     if (!flashFile)
     {
         return false;
     }
 
-    return read_uint16(flashFile, year) && read_uint16(flashFile, month) && read_uint16(flashFile, num_records);
+    return read_uint16(flashFile, year) && read_uint16(flashFile, month) && read_uint16(flashFile, num_records) && read_uint16(flashFile, record_size) && read_uint16(flashFile, record_type);
 }
 
 /**
